@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>The Bike</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; overflow: hidden; }
+    canvas { display: block; }
+    #info {
+      position: fixed; top: 10px; left: 10px;
+      color: white; font-family: Arial; font-size: 13px;
+      background: rgba(0,0,0,0.6); padding: 10px;
+      border-radius: 8px; line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+<div id="info">
+  🌲 Montaña Bosque<br>
+  🛹 Bikepark<br>
+  🏁 Circuito Carrera<br>
+  <small>Arrastra para rotar</small>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================
+// THE BIKE — PROTOTIPO v0.1
+// ============================================
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 200, 600);
+
+const camera = new THREE.PerspectiveCamera(75,
+  window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 120, 280);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// ---- LUCES ----
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+sun.position.set(200, 400, 150);
+sun.castShadow = true;
+sun.shadow.mapSize.width = 2048;
+sun.shadow.mapSize.height = 2048;
+sun.shadow.camera.left = -400;
+sun.shadow.camera.right = 400;
+sun.shadow.camera.top = 400;
+sun.shadow.camera.bottom = -400;
+sun.shadow.camera.far = 1000;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0xc8e8ff, 0.5));
+
+// ---- ALTURA DEL TERRENO ----
+function getAltura(x, z) {
+  let h = Math.sin(x * 0.02) * 3 + Math.cos(z * 0.02) * 3;
+  h += Math.sin(x * 0.1 + z * 0.08) * 1.2;
+
+  // MONTAÑA BOSQUE — zona norte izquierda
+  const dm = Math.sqrt((x+150)*(x+150) + (z+150)*(z+150));
+  h += Math.max(0, 80 - dm * 0.55);
+
+  return h;
+}
+
+// ---- TERRENO BASE ----
+const geoT = new THREE.PlaneGeometry(600, 600, 120, 120);
+const posT = geoT.attributes.position;
+for (let i = 0; i < posT.count; i++) {
+  posT.setZ(i, getAltura(posT.getX(i), posT.getY(i)));
+}
+geoT.computeVertexNormals();
+const terreno = new THREE.Mesh(geoT,
+  new THREE.MeshLambertMaterial({ color: 0x4a7c3f }));
+terreno.rotation.x = -Math.PI / 2;
+terreno.receiveShadow = true;
+scene.add(terreno);
+
+// ---- ZONA BOSQUE — tierra oscura ----
+const geoBosque = new THREE.PlaneGeometry(180, 180, 40, 40);
+const posBosque = geoBosque.attributes.position;
+for (let i = 0; i < posBosque.count; i++) {
+  const x = posBosque.getX(i) - 150;
+  const z = posBosque.getY(i) - 150;
+  posBosque.setZ(i, getAltura(x, z) + 0.1);
+}
+geoBosque.computeVertexNormals();
+const bosqueSuelo = new THREE.Mesh(geoBosque,
+  new THREE.MeshLambertMaterial({ color: 0x5c3d1e }));
+bosqueSuelo.rotation.x = -Math.PI / 2;
+bosqueSuelo.position.set(-150, 0.1, -150);
+bosqueSuelo.receiveShadow = true;
+scene.add(bosqueSuelo);
+
+// ---- ÁRBOLES ALTOS BOSQUE ----
+function crearAbeto(x, z, alto) {
+  const g = new THREE.Group();
+  const tronco = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.7, alto * 0.3, 6),
+    new THREE.MeshLambertMaterial({ color: 0x5c3010 })
+  );
+  tronco.position.y = alto * 0.15;
+  g.add(tronco);
+  // 3 niveles de copa
+  for (let n = 0; n < 3; n++) {
+    const radio = (3 - n) * 2.5;
+    const altura = alto * 0.3 + n * alto * 0.22;
+    const copa = new THREE.Mesh(
+      new THREE.ConeGeometry(radio, alto * 0.28, 7),
+      new THREE.MeshLambertMaterial({
+        color: n === 0 ? 0x1a3d0a : n === 1 ? 0x1e4a0d : 0x234f10
+      })
+    );
+    copa.position.y = altura;
+    g.add(copa);
+  }
+  const h = getAltura(x, z);
+  g.position.set(x, h, z);
+  g.castShadow = true;
+  return g;
+}
+
+// Árboles densos en zona bosque
+for (let i = 0; i < 120; i++) {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 20 + Math.random() * 80;
+  const x = -150 + Math.cos(angle) * dist;
+  const z = -150 + Math.sin(angle) * dist;
+  const alto = 12 + Math.random() * 10;
+  scene.add(crearAbeto(x, z, alto));
+}
+
+// Árboles dispersos resto del terreno
+for (let i = 0; i < 50; i++) {
+  const x = (Math.random() - 0.5) * 550;
+  const z = (Math.random() - 0.5) * 550;
+  if (Math.sqrt((x+150)*(x+150)+(z+150)*(z+150)) > 90) {
+    scene.add(crearAbeto(x, z, 6 + Math.random() * 6));
+  }
+}
+
+// ---- PIEDRAS ----
+for (let i = 0; i < 120; i++) {
+  const x = (Math.random() - 0.5) * 580;
+  const z = (Math.random() - 0.5) * 580;
+  const geo = new THREE.DodecahedronGeometry(
+    0.4 + Math.random() * 2.5, 0);
+  const mat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(
+      0.35 + Math.random()*0.3,
+      0.3 + Math.random()*0.2,
+      0.25 + Math.random()*0.2)
+  });
+  const p = new THREE.Mesh(geo, mat);
+  p.position.set(x, getAltura(x, z) + 0.3, z);
+  p.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
+  p.castShadow = true;
+  scene.add(p);
+}
+
+// ---- RUTA DESCENSO BOSQUE ----
+const matRuta = new THREE.MeshLambertMaterial({ color: 0x8B5E3C });
+const rutaPuntos = [
+  {x:-152, z:-220}, {x:-145, z:-200}, {x:-160, z:-180},
+  {x:-140, z:-160}, {x:-120, z:-150}, {x:-155, z:-130},
+  {x:-170, z:-110}, {x:-145, z:-90}, {x:-120, z:-80},
+  {x:-100, z:-70}, {x:-80, z:-65}
+];
+
+for (let i = 0; i < rutaPuntos.length - 1; i++) {
+  const p1 = rutaPuntos[i];
+  const p2 = rutaPuntos[i+1];
+  const dx = p2.x - p1.x;
+  const dz = p2.z - p1.z;
+  const len = Math.sqrt(dx*dx + dz*dz);
+  const mx = (p1.x+p2.x)/2;
+  const mz = (p1.z+p2.z)/2;
+  const geo = new THREE.BoxGeometry(3, 0.4, len);
+  const mesh = new THREE.Mesh(geo, matRuta);
+  mesh.position.set(mx, getAltura(mx, mz) + 0.3, mz);
+  mesh.rotation.y = Math.atan2(dx, dz);
+  scene.add(mesh);
+}
+
+// ---- SALTOS EN LA RUTA ----
+const matSalto = new THREE.MeshLambertMaterial({ color: 0x6B4226 });
+const saltos = [
+  {x:-148, z:-175}, {x:-133, z:-140}, {x:-158, z:-105}
+];
+saltos.forEach(s => {
+  const salto = new THREE.Mesh(
+    new THREE.BoxGeometry(4, 1.5, 3),
+    matSalto
+  );
+  salto.position.set(s.x, getAltura(s.x, s.z) + 1.2, s.z);
+  salto.rotation.x = -0.4;
+  salto.castShadow = true;
+  scene.add(salto);
+});
+
+// ---- BIKEPARK ----
+const matAsfalto = new THREE.MeshLambertMaterial({ color: 0x333333 });
+const matRampa = new THREE.MeshLambertMaterial({ color: 0x555555 });
+
+// Suelo bikepark
+const suelo = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  new THREE.MeshLambertMaterial({ color: 0x444444 })
+);
+suelo.rotation.x = -Math.PI / 2;
+suelo.position.set(150, 0.2, 100);
+suelo.receiveShadow = true;
+scene.add(suelo);
+
+// Rampas
+function crearRampa(x, z, ancho, alto, largo, rotY) {
+  const geo = new THREE.BoxGeometry(ancho, alto, largo);
+  const mesh = new THREE.Mesh(geo, matRampa);
+  mesh.position.set(x, alto/2 + 0.2, z);
+  mesh.rotation.y = rotY;
+  mesh.rotation.x = -0.35;
+  mesh.castShadow = true;
+  scene.add(mesh);
+}
+
+crearRampa(140, 85, 8, 4, 12, 0);
+crearRampa(160, 85, 8, 4, 12, 0);
+crearRampa(150, 110, 8, 6, 14, Math.PI);
+crearRampa(130, 100, 6, 3, 10, Math.PI/2);
+crearRampa(170, 100, 6, 3, 10, -Math.PI/2);
+
+// Bowl
+const bowl = new THREE.Mesh(
+  new THREE.SphereGeometry(15, 16, 8, 0, Math.PI*2, 0, Math.PI/2),
+  new THREE.MeshLambertMaterial({
+    color: 0x555555, side: THREE.BackSide })
+);
+bowl.position.set(150, -2, 100);
+scene.add(bowl);
+
+// ---- CIRCUITO DE CARRERA ----
+const matCarretera = new THREE.MeshLambertMaterial({ color: 0x222222 });
+
+const circuitoPuntos = [
+  {x:-50, z:150}, {x:0, z:120}, {x:50, z:150},
+  {x:80, z:180}, {x:50, z:210}, {x:0, z:220},
+  {x:-50, z:210}, {x:-80, z:180}, {x:-50, z:150}
+];
+
+for (let i = 0; i < circuitoPuntos.length; i++) {
+  const p1 = circuitoPuntos[i];
+  const p2 = circuitoPuntos[(i+1) % circuitoPuntos.length];
+  const dx = p2.x - p1.x;
+  const dz = p2.z - p1.z;
+  const len = Math.sqrt(dx*dx + dz*dz);
+  const geo = new THREE.BoxGeometry(8, 0.3, len);
+  const mesh = new THREE.Mesh(geo, matCarretera);
+  mesh.position.set(
+    (p1.x+p2.x)/2, 0.3, (p1.z+p2.z)/2);
+  mesh.rotation.y = Math.atan2(dx, dz);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+// Meta del circuito
+const meta = new THREE.Mesh(
+  new THREE.BoxGeometry(10, 8, 1),
+  new THREE.MeshLambertMaterial({ color: 0xff0000 })
+);
+meta.position.set(-50, 4, 150);
+scene.add(meta);
+
+// ---- CÁMARA ORBITAL ----
+let isDragging = false;
+let prevX = 0, prevY = 0;
+let camAngleX = 0.4, camAngleY = 0.3;
+const camDist = 280;
+
+renderer.domElement.addEventListener('touchstart', e => {
+  isDragging = true;
+  prevX = e.touches[0].clientX;
+  prevY = e.touches[0].clientY;
+});
+renderer.domElement.addEventListener('touchmove', e => {
+  if (!isDragging) return;
+  camAngleY += (e.touches[0].clientX - prevX) * 0.004;
+  camAngleX += (e.touches[0].clientY - prevY) * 0.004;
+  camAngleX = Math.max(0.1, Math.min(1.3, camAngleX));
+  prevX = e.touches[0].clientX;
+  prevY = e.touches[0].clientY;
+});
+renderer.domElement.addEventListener('touchend',
+  () => { isDragging = false; });
+
+// Mouse para PC
+renderer.domElement.addEventListener('mousedown', e => {
+  isDragging = true;
+  prevX = e.clientX; prevY = e.clientY;
+});
+renderer.domElement.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  camAngleY += (e.clientX - prevX) * 0.004;
+  camAngleX += (e.clientY - prevY) * 0.004;
+  camAngleX = Math.max(0.1, Math.min(1.3, camAngleX));
+  prevX = e.clientX; prevY = e.clientY;
+});
+renderer.domElement.addEventListener('mouseup',
+  () => { isDragging = false; });
+
+// ---- GAME LOOP ----
+function animate() {
+  requestAnimationFrame(animate);
+  camera.position.x = Math.sin(camAngleY) * camDist * Math.cos(camAngleX);
+  camera.position.y = Math.sin(camAngleX) * camDist;
+  camera.position.z = Math.cos(camAngleY) * camDist * Math.cos(camAngleX);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
